@@ -248,7 +248,7 @@ class UnifiedAdvancedTradingSystem:
                 self.logger.info(f"⚠️  Position limits enforcement needed: {limits_status['recommendations']}")
                 enforcement_result = await limits_manager.enforce_position_limits()
                 if enforcement_result['action'] == 'positions_closed':
-                    self.logger.info(f"✅ CLOSED {enforcement_result['positions_closed']} positions to meet limits")
+                    self.logger.info(f"✅ Executed position: {market_id} {intended_side} {quantity} at {price:.3f}")
             
             # Step 1: Get ALL available markets (no time restrictions) - MORE PERMISSIVE VOLUME
             markets = await self.db_manager.get_eligible_markets(
