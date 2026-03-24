@@ -132,6 +132,11 @@ class ModelRouter(TradingLoggerMixin):
         decision = await router.get_trading_decision(market, portfolio)
     """
 
+    # Minimum seconds between consecutive API calls to avoid rate-limit spikes.
+    # At 0.75 s/call the bot can sustain ~80 calls/minute, well under typical
+    # provider limits while still completing a 4-market cycle in ~20 seconds.
+    _THROTTLE_DELAY_SECONDS: float = 0.75
+
     def __init__(
         self,
         xai_client: Optional[XAIClient] = None,
@@ -150,11 +155,15 @@ class ModelRouter(TradingLoggerMixin):
             key = self._model_key(model_name, provider)
             self.model_health[key] = ModelHealth(model=model_name, provider=provider)
 
+        # Throttling: track the monotonic timestamp of the last dispatched call
+        self._last_call_time: float = 0.0
+
         self.logger.info(
             "ModelRouter initialized",
             xai_available=self.xai_client is not None,
             openrouter_available=self.openrouter_client is not None,
             fleet_size=len(FULL_FLEET),
+            throttle_delay_seconds=self._THROTTLE_DELAY_SECONDS,
         )
 
     # ------------------------------------------------------------------
@@ -164,6 +173,27 @@ class ModelRouter(TradingLoggerMixin):
     @staticmethod
     def _model_key(model: str, provider: str) -> str:
         return f"{provider}::{model}"
+
+    async def _throttle(self) -> None:
+        """
+        Enforce a minimum inter-call delay to avoid rate-limit spikes.
+
+        Calculates how long ago the last API call was dispatched and sleeps
+        for the remainder of the throttle window if needed.  This spaces out
+        all outbound AI requests without adding unnecessary latency when calls
+        are already naturally spread apart.
+        """
+        now = time.monotonic()
+        elapsed = now - self._last_call_time
+        wait = self._THROTTLE_DELAY_SECONDS - elapsed
+        if wait > 0:
+            self.logger.debug(
+                "Throttling API call",
+                wait_seconds=round(wait, 3),
+                throttle_delay=self._THROTTLE_DELAY_SECONDS,
+            )
+            await asyncio.sleep(wait)
+        self._last_call_time = time.monotonic()
 
     def _ensure_xai(self) -> XAIClient:
         """Return the XAI client, creating it on first use if needed."""
@@ -353,6 +383,8 @@ class ModelRouter(TradingLoggerMixin):
         targets = self._resolve_targets(model=model, capability=capability)
 
         for target_model, provider in targets:
+            # Throttle: enforce minimum inter-call delay to avoid rate-limit spikes
+            await self._throttle()
             start = time.time()
             try:
                 result = await self._dispatch_completion(
@@ -428,6 +460,8 @@ class ModelRouter(TradingLoggerMixin):
         targets = self._resolve_targets(model=model, capability=capability)
 
         for target_model, provider in targets:
+            # Throttle: enforce minimum inter-call delay to avoid rate-limit spikes
+            await self._throttle()
             start = time.time()
             try:
                 decision = await self._dispatch_trading_decision(

@@ -221,12 +221,12 @@ class BeastModeBot:
                 else:
                     self.logger.info(f"📊 Cycle #{cycle_count} Complete - No new positions created")
                 
-                # Wait for next cycle (60 seconds)
-                await asyncio.sleep(60)
+                # Wait for next cycle (30 seconds — halved to find opportunities faster)
+                await asyncio.sleep(30)
                 
             except Exception as e:
                 self.logger.error(f"Error in trading cycle #{cycle_count}: {e}")
-                await asyncio.sleep(60)
+                await asyncio.sleep(30)
 
     async def _check_daily_ai_limits(self, xai_client: XAIClient) -> bool:
         """

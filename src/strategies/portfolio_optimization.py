@@ -827,8 +827,9 @@ async def create_market_opportunities_from_markets(
     logger = get_trading_logger("portfolio_opportunities")
     opportunities = []
     
-    # Limit markets to prevent excessive AI costs and focus on best opportunities
-    max_markets_to_analyze = 10  # REDUCED: More selective (was 20, now 10) to focus on highest quality
+    # Limit markets to prevent excessive AI costs and rate-limit exhaustion.
+    # 4 markets × ~5 AI calls each = ~20 API calls per cycle, well within limits.
+    max_markets_to_analyze = 4  # REDUCED: 4 markets keeps API calls under rate limits (was 10)
     if len(markets) > max_markets_to_analyze:
         # Sort by volume and take top markets
         markets = sorted(markets, key=lambda m: m.volume, reverse=True)[:max_markets_to_analyze]
@@ -1206,7 +1207,26 @@ async def _get_fast_ai_prediction(
     """
     Get a fast AI prediction for a market without expensive analysis.
     Returns (predicted_probability, confidence) or (None, None) if failed.
+
+    Results are cached for 30 minutes via the module-level AIDecisionCache
+    singleton so that the same market is never re-queried within a single
+    trading session, preventing rate-limit exhaustion.
     """
+    from src.cache.ai_decision_cache import get_default_cache
+
+    _log = logging.getLogger("portfolio_opportunities")
+    cache = get_default_cache(ttl_minutes=30)
+
+    # --- Cache hit: reuse recent analysis ---
+    cached = cache.get(market.market_id)
+    if cached is not None:
+        _log.info(
+            f"📦 CACHE HIT: {market.market_id} — reusing prediction "
+            f"(prob={cached.probability:.2f}, conf={cached.confidence:.2f}, "
+            f"cache stats={cache.stats()})"
+        )
+        return cached.probability, cached.confidence
+
     try:
         # Create a simplified prompt for faster analysis
         prompt = f"""
@@ -1234,7 +1254,7 @@ async def _get_fast_ai_prediction(
         
         # Check if AI response is None (API exhausted or failed)
         if response_text is None:
-            logging.getLogger("portfolio_opportunities").info(f"AI analysis unavailable for {market.market_id} due to API limits")
+            _log.info(f"AI analysis unavailable for {market.market_id} due to API limits")
             return None, None
         
         # Parse JSON from the response text
@@ -1258,16 +1278,22 @@ async def _get_fast_ai_prediction(
                 # Validate values
                 if (isinstance(probability, (int, float)) and 0 <= probability <= 1 and
                     isinstance(confidence, (int, float)) and 0 <= confidence <= 1):
+                    # Store in cache before returning
+                    cache.set(market.market_id, float(probability), float(confidence))
+                    _log.info(
+                        f"💾 CACHE SET: {market.market_id} — stored prediction "
+                        f"(prob={probability:.2f}, conf={confidence:.2f})"
+                    )
                     return float(probability), float(confidence)
             
         except (json.JSONDecodeError, ValueError) as json_error:
-            logging.getLogger("portfolio_opportunities").warning(f"Failed to parse JSON from AI response for {market.market_id}: {json_error}")
-            logging.getLogger("portfolio_opportunities").debug(f"Raw response: {response_text}")
+            _log.warning(f"Failed to parse JSON from AI response for {market.market_id}: {json_error}")
+            _log.debug(f"Raw response: {response_text}")
         
         return None, None
         
     except Exception as e:
-        logging.getLogger("portfolio_opportunities").error(f"Error in fast AI prediction for {market.market_id}: {e}")
+        _log.error(f"Error in fast AI prediction for {market.market_id}: {e}")
         return None, None
 
 
