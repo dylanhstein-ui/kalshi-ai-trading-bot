@@ -24,23 +24,35 @@ class RiskManagerAgent(BaseAgent):
         "You must consider:\n"
         "1. EXPECTED VALUE (EV) -- Calculate EV = (estimated probability * payout) "
         "   - cost. Only trades with positive EV should be taken.\n"
-        "2. RISK SCORE -- Rate the overall risk from 1 (very safe) to 10 (very "
+        "2. KALSHI CASHOUT LOSS -- On Kalshi, if you buy YES at 50 cents and "
+        "   instantly cash out, you lose that 50 cents (you receive 0). Factor "
+        "   this into your worst-case loss: the maximum loss on any position is "
+        "   the full amount paid (entry_price * quantity). Never assume you can "
+        "   recover principal via early exit.\n"
+        "3. RISK SCORE -- Rate the overall risk from 1 (very safe) to 10 (very "
         "   risky). Consider: liquidity, time to expiry, volatility, information "
         "   quality, and model disagreement.\n"
-        "3. POSITION SIZE -- Recommend what percentage of available capital to "
-        "   allocate (0-100%). Use fractional Kelly criterion logic: higher EV "
-        "   and lower risk = larger position.\n"
-        "4. WORST CASE -- What is the maximum loss, and is it acceptable?\n"
-        "5. EDGE DURABILITY -- How long will the informational edge last?\n\n"
+        "4. POSITION SIZE -- Recommend what percentage of available capital to "
+        "   allocate (0-100%). Use aggressive fractional Kelly criterion logic:\n"
+        "   - High confidence (>0.75): recommend 20-25% of capital\n"
+        "   - Medium confidence (0.50-0.75): recommend 10-15% of capital\n"
+        "   - Low confidence (<0.50): recommend 0% (skip the trade)\n"
+        "   Higher EV and lower risk = larger position. Be aggressive when "
+        "   conviction is high — small positions do not move the needle.\n"
+        "5. WORST CASE -- Maximum loss equals the full amount paid (Kalshi "
+        "   cashout mechanics mean you cannot recover principal on exit).\n"
+        "6. EDGE DURABILITY -- How long will the informational edge last?\n\n"
         "Return your analysis as a JSON object (inside a ```json``` code block) "
         "with the following keys:\n"
         '  "risk_score": float (1.0-10.0),\n'
         '  "recommended_size_pct": float (0.0-100.0, percent of capital),\n'
         '  "ev_estimate": float (expected value as a decimal, e.g. 0.15 = 15%),\n'
-        '  "max_loss_pct": float (worst case loss as percent of position),\n'
+        '  "max_loss_pct": float (worst case loss as percent of position, '
+        'typically 100% due to Kalshi cashout mechanics),\n'
         '  "edge_durability_hours": float (estimated hours the edge lasts),\n'
         '  "should_trade": boolean (true if trade meets risk criteria),\n'
-        '  "reasoning": string (detailed risk analysis)'
+        '  "reasoning": string (detailed risk analysis including cashout loss '
+        'scenario and position sizing rationale)'
     )
 
     def _build_prompt(self, market_data: dict, context: dict) -> str:
@@ -106,16 +118,37 @@ class RiskManagerAgent(BaseAgent):
 
     def _parse_result(self, raw_json: dict) -> dict:
         risk_score = self.clamp(raw_json.get("risk_score", 5.0), lo=1.0, hi=10.0)
-        recommended_size_pct = self.clamp(
-            raw_json.get("recommended_size_pct", 1.0), lo=0.0, hi=100.0
-        )
         ev_estimate = float(raw_json.get("ev_estimate", 0.0))
-        max_loss_pct = self.clamp(
-            raw_json.get("max_loss_pct", 100.0), lo=0.0, hi=100.0
-        )
+        # Kalshi cashout mechanics: worst-case loss is always 100% of position cost
+        # (buying YES at 50¢ and cashing out immediately returns $0).
+        max_loss_pct = 100.0
         edge_durability = max(0.0, float(raw_json.get("edge_durability_hours", 24.0)))
         should_trade = bool(raw_json.get("should_trade", False))
         reasoning = str(raw_json.get("reasoning", "No reasoning provided."))
+
+        # Aggressive position sizing based on confidence tiers.
+        # The AI's raw recommendation is used as a starting point, then
+        # overridden by the confidence-tier floors/caps below.
+        raw_size_pct = self.clamp(
+            raw_json.get("recommended_size_pct", 1.0), lo=0.0, hi=100.0
+        )
+
+        # Derive confidence from context if available (passed via raw_json extras)
+        # Fall back to a neutral 0.6 if not present.
+        confidence = self.clamp(float(raw_json.get("_confidence_hint", 0.6)))
+
+        if confidence > 0.75:
+            # High conviction: allow up to 25% position size
+            recommended_size_pct = max(raw_size_pct, 20.0)
+            recommended_size_pct = min(recommended_size_pct, 25.0)
+        elif confidence >= 0.50:
+            # Medium conviction: 10-15% position size
+            recommended_size_pct = max(raw_size_pct, 10.0)
+            recommended_size_pct = min(recommended_size_pct, 15.0)
+        else:
+            # Low conviction: skip the trade
+            recommended_size_pct = 0.0
+            should_trade = False
 
         return {
             "risk_score": risk_score,

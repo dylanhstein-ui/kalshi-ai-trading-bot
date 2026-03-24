@@ -27,13 +27,18 @@ class TraderAgent(BaseAgent):
         "Your decision framework:\n"
         "1. CONSENSUS CHECK -- Do the agents broadly agree? High disagreement "
         "   should lower your confidence.\n"
-        "2. EV THRESHOLD -- Only trade if expected value is strongly positive "
+        "2. EDGE CALCULATION -- Calculate the statistical edge:\n"
+        "   edge = ai_probability - market_probability\n"
+        "   Example: market at 50¢ (50% implied), AI says 65% → edge = 15%.\n"
+        "   ONLY trade if |edge| > 10%. If edge ≤ 10%, output action=SKIP.\n"
+        "   This is a hard rule — no exceptions.\n"
+        "3. EV THRESHOLD -- Only trade if expected value is strongly positive "
         "   (at least 10% edge over market price).\n"
-        "3. RISK CHECK -- Does the risk manager approve? Respect position sizing "
+        "4. RISK CHECK -- Does the risk manager approve? Respect position sizing "
         "   recommendations.\n"
-        "4. PRICE SETTING -- Set a limit price that gives you edge. Never chase "
+        "5. PRICE SETTING -- Set a limit price that gives you edge. Never chase "
         "   the market.\n"
-        "5. CONVICTION -- You need high conviction from multiple sources to act. "
+        "6. CONVICTION -- You need high conviction from multiple sources to act. "
         "   When in doubt, SKIP.\n\n"
         "Return your decision as a JSON object (inside a ```json``` code block) "
         "with the following keys:\n"
@@ -41,8 +46,12 @@ class TraderAgent(BaseAgent):
         '  "side": "YES" | "NO",\n'
         '  "limit_price": int (cents, 1-99),\n'
         '  "confidence": float (0.0-1.0),\n'
+        '  "ai_probability": float (0.0-1.0, your probability estimate for YES),\n'
+        '  "market_probability": float (0.0-1.0, current market implied probability),\n'
+        '  "edge": float (ai_probability - market_probability, positive = YES edge),\n'
         '  "position_size_pct": float (percent of capital to risk),\n'
-        '  "reasoning": string (detailed justification referencing the agents)'
+        '  "reasoning": string (detailed justification referencing the agents '
+        'and explicitly stating the edge calculation)'
     )
 
     def _build_prompt(self, market_data: dict, context: dict) -> str:
@@ -130,6 +139,11 @@ class TraderAgent(BaseAgent):
             f"Return ONLY a JSON object inside a ```json``` code block."
         )
 
+    # Minimum statistical edge required to place a trade.
+    # If |ai_probability - market_probability| <= this threshold, the trade
+    # is forced to SKIP regardless of what the model recommends.
+    MIN_EDGE_TO_TRADE: float = 0.10
+
     def _parse_result(self, raw_json: dict) -> dict:
         action = str(raw_json.get("action", "SKIP")).upper()
         if action not in ("BUY", "SELL", "SKIP"):
@@ -154,11 +168,46 @@ class TraderAgent(BaseAgent):
 
         reasoning = str(raw_json.get("reasoning", "No reasoning provided."))
 
+        # --- Hard edge filter ---
+        # Extract the edge the model calculated (or derive it from probabilities).
+        ai_probability = self.clamp(float(raw_json.get("ai_probability", confidence)))
+        market_probability = self.clamp(float(raw_json.get("market_probability", 0.5)))
+        reported_edge = raw_json.get("edge")
+
+        if reported_edge is not None:
+            try:
+                edge = float(reported_edge)
+            except (TypeError, ValueError):
+                edge = ai_probability - market_probability
+        else:
+            edge = ai_probability - market_probability
+
+        edge_magnitude = abs(edge)
+
+        if action in ("BUY", "SELL") and edge_magnitude <= self.MIN_EDGE_TO_TRADE:
+            self.logger.warning(
+                "Edge below minimum threshold — overriding to SKIP",
+                edge=round(edge, 4),
+                min_edge=self.MIN_EDGE_TO_TRADE,
+                ai_probability=ai_probability,
+                market_probability=market_probability,
+            )
+            action = "SKIP"
+            reasoning = (
+                f"[EDGE FILTER] Edge {edge_magnitude:.1%} ≤ {self.MIN_EDGE_TO_TRADE:.0%} "
+                f"minimum — trade skipped. "
+                f"AI prob={ai_probability:.2f}, market prob={market_probability:.2f}. "
+                f"Original reasoning: {reasoning}"
+            )
+
         return {
             "action": action,
             "side": side,
             "limit_price": limit_price,
             "confidence": confidence,
+            "ai_probability": ai_probability,
+            "market_probability": market_probability,
+            "edge": edge,
             "position_size_pct": position_size_pct,
             "reasoning": reasoning,
         }
