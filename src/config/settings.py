@@ -16,7 +16,7 @@ load_dotenv()
 class APIConfig:
     """API configuration settings."""
     kalshi_api_key: str = field(default_factory=lambda: os.getenv("KALSHI_API_KEY", ""))
-    kalshi_base_url: str = "https://api.elections.kalshi.com"  # Updated to new API endpoint
+    kalshi_base_url: str = "https://api.elections.kalshi.com"
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     xai_api_key: str = field(default_factory=lambda: os.getenv("XAI_API_KEY", ""))
     openrouter_api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
@@ -28,7 +28,6 @@ class APIConfig:
 class EnsembleConfig:
     """Multi-model ensemble configuration."""
     enabled: bool = True
-    # Model roster for ensemble decisions
     models: Dict[str, Dict] = field(default_factory=lambda: {
         "grok-3": {"provider": "xai", "role": "forecaster", "weight": 0.30},
         "anthropic/claude-3.5-sonnet": {"provider": "openrouter", "role": "news_analyst", "weight": 0.20},
@@ -37,11 +36,11 @@ class EnsembleConfig:
         "deepseek/deepseek-r1": {"provider": "openrouter", "role": "risk_manager", "weight": 0.15},
     })
     min_models_for_consensus: int = 3
-    disagreement_threshold: float = 0.25  # Std dev above this = low confidence
+    disagreement_threshold: float = 0.25
     parallel_requests: bool = True
     debate_enabled: bool = True
     calibration_tracking: bool = True
-    max_ensemble_cost: float = 0.50  # Max cost per ensemble decision
+    max_ensemble_cost: float = 0.50
 
 
 @dataclass
@@ -54,101 +53,102 @@ class SentimentConfig:
         "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
         "https://feeds.bbci.co.uk/news/business/rss.xml",
     ])
-    sentiment_model: str = "google/gemini-3.1-flash-lite-preview"  # Fast/cheap for sentiment ($0.25/M)
+    sentiment_model: str = "google/gemini-3.1-flash-lite-preview"
     cache_ttl_minutes: int = 30
     max_articles_per_source: int = 10
     relevance_threshold: float = 0.3
 
 
-# Trading strategy configuration — DISCIPLINED DEFAULTS (sane risk management)
-# Beast mode is still available via --beast flag, but NOT the default.
-# Discipline defaults based on live prediction market trading experience.
+# Trading strategy configuration
 # NCAAB NO-side: 74% WR, +10% ROI — ONLY profitable category.
 # Economic trades: -70% ROI, 78% of all losses.
+# PRICE IMPACT NOTE: Buying a position typically causes the price to drop immediately
+# after purchase (e.g. buy at 13.5 cents, drops to 12.75 after fill).
+# This means quick flips are usually unprofitable due to market impact.
+# Strategy: hold positions longer to let the market recover and move in our favor.
 @dataclass
 class TradingConfig:
     """Trading strategy configuration."""
-        max_position_size_pct: float = 30.0  # 30% per position
-        max_daily_loss_pct: float = 30.0     # 30% daily loss limit
-        max_positions: int = 10              # 10 concurrent positions
-        min_balance: float = 0.0             # no minimum balance
-        min_volume: float = 100.0            # LOWER: More market access (was 500)
-        max_time_to_expiry_days: int = 5     # SHORT-TERM: 5 days max (was 14)
-    
-    # AI decision making — DATA-DRIVEN THRESHOLDS  
-    min_confidence_to_trade: float = 0.60   # OPTIMIZED: 60% confidence minimum (reduced from 65% due to zero-trade issue)
-                                           # Based on analysis: 65% was too conservative, bot finding 0 eligible markets
-                                           # NCAAB NO-side showed 74% WR at +10% ROI, suggesting value at lower thresholds
-    
-    # Category-specific confidence adjustments (applied as multipliers to base threshold)
+    max_position_size_pct: float = 30.0
+    max_daily_loss_pct: float = 30.0
+    max_positions: int = 10
+    min_balance: float = 0.0
+    min_volume: float = 100.0
+    max_time_to_expiry_days: int = 5
+
+    # AI decision making
+    min_confidence_to_trade: float = 0.60
+
+    # Category-specific confidence adjustments
     category_confidence_adjustments: Dict[str, float] = field(default_factory=lambda: {
-        "sports": 0.90,      # Sports showed best performance (NCAAB 74% WR), lower threshold
-        "economics": 1.15,   # Economics showed -70% ROI, higher threshold required  
-        "politics": 1.05,    # Slight increase for political volatility
-        "default": 1.0       # Base multiplier for other categories
+        "sports": 0.90,
+        "economics": 1.15,
+        "politics": 1.05,
+        "default": 1.0
     })
-    
-    scan_interval_seconds: int = 60      # SANE: 60-second scan interval (was 30)
-    
+
+    scan_interval_seconds: int = 60
+
     # AI model configuration
-    primary_model: str = "grok-3"  # xAI Grok model for forecasting
-    fallback_model: str = "grok-4-1-fast-non-reasoning"  # Fallback to fast non-reasoning variant
-    ai_temperature: float = 0  # Lower temperature for more consistent JSON output
-    ai_max_tokens: int = 8000    # Reasonable limit for reasoning models (grok-4 works better with 8000)
-    
-    # Position sizing (LEGACY - now using Kelly-primary approach)
-    default_position_size: float = 3.0  # REDUCED: Now using Kelly Criterion as primary method (was 5%, now 3%)
-    position_size_multiplier: float = 1.0  # Multiplier for AI confidence
-    
-    # Kelly Criterion settings (PRIMARY position sizing method) — DISCIPLINED
-    use_kelly_criterion: bool = True        # Use Kelly Criterion for position sizing (PRIMARY METHOD)
-    kelly_fraction: float = 0.25            # SANE: Quarter-Kelly (was 0.75 beast mode — gambling)
-    max_single_position: float = 0.03       # SANE: 3% max position cap (was 0.05 beast mode)
-    
+    primary_model: str = "grok-3"
+    fallback_model: str = "grok-4-1-fast-non-reasoning"
+    ai_temperature: float = 0
+    ai_max_tokens: int = 8000
+
+    # Position sizing (LEGACY)
+    default_position_size: float = 3.0
+    position_size_multiplier: float = 1.0
+
+    # Kelly Criterion settings (PRIMARY position sizing method)
+    use_kelly_criterion: bool = True
+    kelly_fraction: float = 0.25
+    max_single_position: float = 0.03
+
     # Live trading mode control
     live_trading_enabled: bool = field(default_factory=lambda: os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true")
     paper_trading_mode: bool = field(default_factory=lambda: os.getenv("LIVE_TRADING_ENABLED", "false").lower() != "true")
-    
-    # Trading frequency - MORE FREQUENT
-    market_scan_interval: int = 30          # DECREASED: Scan every 30 seconds (was 60)
-    position_check_interval: int = 15       # DECREASED: Check positions every 15 seconds (was 30)
-    max_trades_per_hour: int = 20           # INCREASED: Allow more trades per hour (was 10, now 20)
-    run_interval_minutes: int = 10          # DECREASED: Run more frequently (was 15, now 10)
-    num_processor_workers: int = 5      # Number of concurrent market processor workers
-    
+
+    # Trading frequency
+    market_scan_interval: int = 30
+    position_check_interval: int = 15
+    max_trades_per_hour: int = 20
+    run_interval_minutes: int = 10
+    num_processor_workers: int = 5
+
     # Market selection preferences
     preferred_categories: List[str] = field(default_factory=lambda: [])
     excluded_categories: List[str] = field(default_factory=lambda: [])
-    
+
     # High-confidence, near-expiry strategy
     enable_high_confidence_strategy: bool = True
-    high_confidence_threshold: float = 0.95  # LLM confidence needed
-    high_confidence_market_odds: float = 0.90 # Market price to look for
-    high_confidence_expiry_hours: int = 24   # Max hours until expiry
+    high_confidence_threshold: float = 0.95
+    high_confidence_market_odds: float = 0.90
+    high_confidence_expiry_hours: int = 24
 
-    # AI trading criteria - MORE PERMISSIVE
-    max_analysis_cost_per_decision: float = 0.15  # INCREASED: Allow higher cost per decision (was 0.10, now 0.15)
-    min_confidence_threshold: float = 0.45  # DECREASED: Lower confidence threshold (was 0.55, now 0.45)
+    # AI trading criteria
+    max_analysis_cost_per_decision: float = 0.15
+    min_confidence_threshold: float = 0.45
 
-    # Cost control and market analysis frequency - MORE PERMISSIVE
-    daily_ai_budget: float = 10.0  # INCREASED: Higher daily budget (was 5.0, now 10.0)
-    max_ai_cost_per_decision: float = 0.08  # INCREASED: Higher per-decision cost (was 0.05, now 0.08)
-    analysis_cooldown_hours: int = 3  # DECREASED: Shorter cooldown (was 6, now 3)
-    max_analyses_per_market_per_day: int = 4  # INCREASED: More analyses per day (was 2, now 4)
-    
-    # Daily AI spending limits - SAFETY CONTROLS
-    # Default is $10/day — conservative limit to prevent runaway API spend.
-    # Raise via DAILY_AI_COST_LIMIT env var or by editing this value directly.
-    # e.g. export DAILY_AI_COST_LIMIT=25  (for more aggressive scanning)
+    # Cost control
+    daily_ai_budget: float = 10.0
+    max_ai_cost_per_decision: float = 0.08
+    analysis_cooldown_hours: int = 3
+    max_analyses_per_market_per_day: int = 4
+
+    # Daily AI spending limits
     daily_ai_cost_limit: float = field(default_factory=lambda: float(os.getenv("DAILY_AI_COST_LIMIT", "10.0")))
-    enable_daily_cost_limiting: bool = True  # Enable daily cost limits
-    sleep_when_limit_reached: bool = True  # Sleep until next day when limit reached
+    enable_daily_cost_limiting: bool = True
+    sleep_when_limit_reached: bool = True
 
-    # Enhanced market filtering to reduce analyses - MORE PERMISSIVE
-    min_volume_for_ai_analysis: float = 200.0  # DECREASED: Much lower threshold (was 500, now 200)
-    exclude_low_liquidity_categories: List[str] = field(default_factory=lambda: [
-        # REMOVED weather and entertainment - trade all categories
-    ])
+    # Market filtering
+    min_volume_for_ai_analysis: float = 200.0
+    exclude_low_liquidity_categories: List[str] = field(default_factory=lambda: [])
+
+    # Price impact awareness
+    # Buying moves the price against us immediately. Do not exit quickly.
+    # Wait for market to recover before considering a close.
+    min_hold_time_minutes: int = 30        # Never exit within 30 mins of entry
+    price_impact_buffer: float = 0.01      # Expect ~1 cent adverse move on entry, factor into exit targets
 
 
 @dataclass
@@ -159,92 +159,78 @@ class LoggingConfig:
     log_file: str = "logs/trading_system.log"
     enable_file_logging: bool = True
     enable_console_logging: bool = True
-    max_log_file_size: int = 10 * 1024 * 1024  # 10MB
+    max_log_file_size: int = 10 * 1024 * 1024
     backup_count: int = 5
 
 
-# BEAST MODE UNIFIED TRADING SYSTEM CONFIGURATION 🚀
-# These settings control the advanced multi-strategy trading system
-
 # === CAPITAL ALLOCATION ACROSS STRATEGIES ===
-# Allocate capital across different trading approaches
-market_making_allocation: float = 0.40  # 40% for market making (spread profits)
-directional_allocation: float = 0.50    # 50% for directional trading (AI predictions) 
-arbitrage_allocation: float = 0.10      # 10% for arbitrage opportunities
+market_making_allocation: float = 0.40
+directional_allocation: float = 0.50
+arbitrage_allocation: float = 0.10
 
-  # === PORTFOLIO OPTIMIZATION SETTINGS ===
-# Kelly Criterion is now the PRIMARY position sizing method (moved to TradingConfig)
-# total_capital: DYNAMICALLY FETCHED from Kalshi balance - never hardcoded!
-use_risk_parity: bool = True            # Equal risk allocation vs equal capital
-rebalance_hours: int = 6                # Rebalance portfolio every 6 hours
-min_position_size: float = 5.0          # Minimum position size ($5 vs $10)
-max_opportunities_per_batch: int = 50   # Limit opportunities to prevent optimization issues
+# === PORTFOLIO OPTIMIZATION SETTINGS ===
+use_risk_parity: bool = True
+rebalance_hours: int = 6
+min_position_size: float = 5.0
+max_opportunities_per_batch: int = 50
 
 # === RISK MANAGEMENT LIMITS ===
-# Portfolio-level risk constraints — DISCIPLINED DEFAULTS
-# Conservative defaults based on live trading experience. Beast mode available via CLI flag.
-max_volatility: float = 0.40            # SANE: 40% volatility max (was 80%)
-max_correlation: float = 0.70           # SANE: 70% correlation max (was 95%)
-max_drawdown: float = 0.15              # SANE: 15% drawdown limit (was 50% — suicidal)
-max_sector_exposure: float = 0.30       # SANE: 30% sector concentration (was 90%)
+max_volatility: float = 0.40
+max_correlation: float = 0.70
+max_drawdown: float = 0.15
+max_sector_exposure: float = 0.30
 
 # === PERFORMANCE TARGETS ===
-# System performance objectives - MORE AGGRESSIVE FOR MORE TRADES
-target_sharpe: float = 0.3              # DECREASED: Lower Sharpe requirement (was 0.5, now 0.3)
-target_return: float = 0.15             # INCREASED: Higher return target (was 0.10, now 0.15)
-min_trade_edge: float = 0.08           # DECREASED: Lower edge requirement (was 0.15, now 8%)
-min_confidence_for_large_size: float = 0.50  # DECREASED: Lower confidence requirement (was 0.65, now 50%)
+target_sharpe: float = 0.3
+target_return: float = 0.15
+min_trade_edge: float = 0.08
+min_confidence_for_large_size: float = 0.50
 
 # === DYNAMIC EXIT STRATEGIES ===
-# Enhanced exit strategy settings - MORE AGGRESSIVE
+# Price impact note: after buying, price typically drops ~0.75 cents immediately.
+# Quick exits lock in losses. Hold longer to let price recover.
 use_dynamic_exits: bool = True
-profit_threshold: float = 0.20          # DECREASED: Take profits sooner (was 0.25, now 0.20)
-loss_threshold: float = 0.15            # INCREASED: Allow larger losses (was 0.10, now 0.15)
-confidence_decay_threshold: float = 0.25  # INCREASED: Allow more confidence decay (was 0.20, now 0.25)
-max_hold_time_hours: int = 240          # INCREASED: Hold longer (was 168, now 240 hours = 10 days)
-volatility_adjustment: bool = True      # Adjust exits based on volatility
+profit_threshold: float = 0.20
+loss_threshold: float = 0.15
+confidence_decay_threshold: float = 0.25
+max_hold_time_hours: int = 240
+volatility_adjustment: bool = True
 
 # === MARKET MAKING STRATEGY ===
-# Settings for limit order market making - MORE AGGRESSIVE
-enable_market_making: bool = True       # Enable market making strategy
-min_spread_for_making: float = 0.01     # DECREASED: Accept smaller spreads (was 0.02, now 1¢)
-max_inventory_risk: float = 0.15        # INCREASED: Allow higher inventory risk (was 0.10, now 15%)
-order_refresh_minutes: int = 15         # Refresh orders every 15 minutes
-max_orders_per_market: int = 4          # Maximum orders per market (2 each side)
+enable_market_making: bool = True
+min_spread_for_making: float = 0.01
+max_inventory_risk: float = 0.15
+order_refresh_minutes: int = 15
+max_orders_per_market: int = 4
 
-# === MARKET SELECTION (ENHANCED FOR MORE OPPORTUNITIES) ===
-# Removed time restrictions - trade ANY deadline with dynamic exits!
-# max_time_to_expiry_days: REMOVED      # No longer used - trade any timeline!
-min_volume_for_analysis: float = 200.0  # DECREASED: Much lower minimum volume (was 1000, now 200)
-min_volume_for_market_making: float = 500.0  # DECREASED: Lower volume for market making (was 2000, now 500)
-min_price_movement: float = 0.02        # DECREASED: Lower minimum range (was 0.05, now 2¢)
-max_bid_ask_spread: float = 0.15        # INCREASED: Allow wider spreads (was 0.10, now 15¢)
-min_confidence_long_term: float = 0.45  # DECREASED: Lower confidence for distant expiries (was 0.65, now 45%)
+# === MARKET SELECTION ===
+min_volume_for_analysis: float = 200.0
+min_volume_for_market_making: float = 500.0
+min_price_movement: float = 0.02
+max_bid_ask_spread: float = 0.15
+min_confidence_long_term: float = 0.45
 
-# === COST OPTIMIZATION (MORE GENEROUS) ===
-# Enhanced cost controls for the beast mode system
-daily_ai_budget: float = 15.0           # INCREASED: Higher budget for more opportunities (was 10.0, now 15.0)
-max_ai_cost_per_decision: float = 0.12  # INCREASED: Higher per-decision limit (was 0.08, now 0.12)
-analysis_cooldown_hours: int = 2        # DECREASED: Much shorter cooldown (was 4, now 2)
-max_analyses_per_market_per_day: int = 6  # INCREASED: More analyses per day (was 3, now 6)
-skip_news_for_low_volume: bool = True   # Skip expensive searches for low volume
-news_search_volume_threshold: float = 1000.0  # News threshold
+# === COST OPTIMIZATION ===
+daily_ai_budget: float = 15.0
+max_ai_cost_per_decision: float = 0.12
+analysis_cooldown_hours: int = 2
+max_analyses_per_market_per_day: int = 6
+skip_news_for_low_volume: bool = True
+news_search_volume_threshold: float = 1000.0
 
 # === SYSTEM BEHAVIOR ===
-# Overall system behavior settings
-beast_mode_enabled: bool = True         # Enable the unified advanced system
-fallback_to_legacy: bool = True         # Fallback to legacy system if needed
-log_level: str = "INFO"                 # Logging level
-performance_monitoring: bool = True     # Enable performance monitoring
+beast_mode_enabled: bool = True
+fallback_to_legacy: bool = True
+log_level: str = "INFO"
+performance_monitoring: bool = True
 
 # === ADVANCED FEATURES ===
-# Cutting-edge features for maximum performance
-cross_market_arbitrage: bool = False    # Enable when arbitrage module ready
-multi_model_ensemble: bool = True       # Multi-model ensemble decisions (ENABLED)
-sentiment_analysis: bool = True         # News sentiment analysis (ENABLED)
-websocket_streaming: bool = True        # WebSocket real-time data (ENABLED)
-options_strategies: bool = False        # Complex options strategies (future)
-algorithmic_execution: bool = False     # Smart order execution (future)
+cross_market_arbitrage: bool = False
+multi_model_ensemble: bool = True
+sentiment_analysis: bool = True
+websocket_streaming: bool = True
+options_strategies: bool = False
+algorithmic_execution: bool = False
 
 
 @dataclass
@@ -281,4 +267,4 @@ try:
     settings.validate()
 except ValueError as e:
     print(f"Configuration validation error: {e}")
-    print("Please check your environment variables and configuration.") 
+    print("Please check your environment variables and configuration.")
