@@ -90,8 +90,8 @@ class TradingConfig:
     scan_interval_seconds: int = 60
 
     # AI model configuration — using Gemini directly (free tier, no xAI needed)
-    primary_model: str = "gemini-1.5-flash"
-    fallback_model: str = "gemini-1.5-flash-8b"
+    primary_model: str = "grok-3"
+    fallback_model: str = "grok-3"
     ai_temperature: float = 0.1
     ai_max_tokens: int = 4000
 
