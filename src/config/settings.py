@@ -70,7 +70,14 @@ class SentimentConfig:
 class TradingConfig:
     """Trading strategy configuration."""
     max_position_size_pct: float = 30.0
-    max_daily_loss_pct: float = 30.0
+    max_daily_loss_pct: float = 10.0
+
+    # Performance incentives
+    enable_performance_incentives: bool = True
+    profit_bonus_multiplier: float = 1.5  # Increase position size by 50% on profitable days
+    loss_penalty_multiplier: float = 0.5  # Reduce position size by 50% on losing days
+    min_daily_return_for_bonus: float = 0.02  # 2% daily return triggers bonus
+
     max_positions: int = 10
     min_balance: float = 0.0
     min_volume: float = 100.0
@@ -234,6 +241,21 @@ algorithmic_execution: bool = False
 
 
 @dataclass
+class NotificationConfig:
+    """Notification settings for daily updates."""
+    enabled: bool = True
+    sms_enabled: bool = field(default_factory=lambda: os.getenv("SMS_NOTIFICATIONS_ENABLED", "false").lower() == "true")
+    twilio_account_sid: str = field(default_factory=lambda: os.getenv("TWILIO_ACCOUNT_SID", ""))
+    twilio_auth_token: str = field(default_factory=lambda: os.getenv("TWILIO_AUTH_TOKEN", ""))
+    twilio_phone_number: str = field(default_factory=lambda: os.getenv("TWILIO_PHONE_NUMBER", ""))
+    recipient_phone_number: str = field(default_factory=lambda: os.getenv("RECIPIENT_PHONE_NUMBER", ""))
+    send_daily_summary: bool = True
+    summary_time: str = "17:00"  # 5 PM UTC
+    include_positions: bool = True
+    include_performance_metrics: bool = True
+
+
+@dataclass
 class Settings:
     """Main settings class combining all configuration."""
     api: APIConfig = field(default_factory=APIConfig)
@@ -241,6 +263,7 @@ class Settings:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
+    notifications: NotificationConfig = field(default_factory=NotificationConfig)
 
     def validate(self) -> bool:
         """Validate configuration settings."""
