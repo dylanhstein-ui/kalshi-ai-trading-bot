@@ -17,6 +17,8 @@ class APIConfig:
     """API configuration settings."""
     kalshi_api_key: str = field(default_factory=lambda: os.getenv("KALSHI_API_KEY", ""))
     kalshi_base_url: str = "https://api.elections.kalshi.com"
+    gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     xai_api_key: str = field(default_factory=lambda: os.getenv("XAI_API_KEY", ""))
     openrouter_api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
@@ -29,18 +31,16 @@ class EnsembleConfig:
     """Multi-model ensemble configuration."""
     enabled: bool = True
     models: Dict[str, Dict] = field(default_factory=lambda: {
-        "grok-3": {"provider": "xai", "role": "forecaster", "weight": 0.30},
-        "anthropic/claude-3.5-sonnet": {"provider": "openrouter", "role": "news_analyst", "weight": 0.20},
-        "openai/gpt-4o": {"provider": "openrouter", "role": "bull_researcher", "weight": 0.20},
-        "google/gemini-flash-1.5": {"provider": "openrouter", "role": "bear_researcher", "weight": 0.15},
-        "deepseek/deepseek-r1": {"provider": "openrouter", "role": "risk_manager", "weight": 0.15},
+        "gemini-1.5-flash": {"provider": "gemini", "role": "forecaster", "weight": 0.40},
+        "gemini-1.5-flash": {"provider": "gemini", "role": "news_analyst", "weight": 0.30},
+        "gemini-1.5-flash": {"provider": "gemini", "role": "risk_manager", "weight": 0.30},
     })
-    min_models_for_consensus: int = 3
+    min_models_for_consensus: int = 1
     disagreement_threshold: float = 0.25
     parallel_requests: bool = True
-    debate_enabled: bool = True
+    debate_enabled: bool = False
     calibration_tracking: bool = True
-    max_ensemble_cost: float = 0.50
+    max_ensemble_cost: float = 0.10
 
 
 @dataclass
@@ -53,7 +53,7 @@ class SentimentConfig:
         "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
         "https://feeds.bbci.co.uk/news/business/rss.xml",
     ])
-    sentiment_model: str = "google/gemini-3.1-flash-lite-preview"
+    sentiment_model: str = "gemini-1.5-flash"
     cache_ttl_minutes: int = 30
     max_articles_per_source: int = 10
     relevance_threshold: float = 0.3
@@ -89,11 +89,11 @@ class TradingConfig:
 
     scan_interval_seconds: int = 60
 
-    # AI model configuration
-    primary_model: str = "grok-3"
-    fallback_model: str = "grok-4-1-fast-non-reasoning"
-    ai_temperature: float = 0
-    ai_max_tokens: int = 8000
+    # AI model configuration — using Gemini directly (free tier, no xAI needed)
+    primary_model: str = "gemini-1.5-flash"
+    fallback_model: str = "gemini-1.5-flash-8b"
+    ai_temperature: float = 0.1
+    ai_max_tokens: int = 4000
 
     # Position sizing (LEGACY)
     default_position_size: float = 3.0
@@ -129,26 +129,24 @@ class TradingConfig:
     max_analysis_cost_per_decision: float = 0.15
     min_confidence_threshold: float = 0.45
 
-    # Cost control
-    daily_ai_budget: float = 10.0
-    max_ai_cost_per_decision: float = 0.08
-    analysis_cooldown_hours: int = 3
-    max_analyses_per_market_per_day: int = 4
+    # Cost control — Gemini free tier is generous, set high limits
+    daily_ai_budget: float = 100.0
+    max_ai_cost_per_decision: float = 0.01
+    analysis_cooldown_hours: int = 1
+    max_analyses_per_market_per_day: int = 10
 
-    # Daily AI spending limits
-    daily_ai_cost_limit: float = field(default_factory=lambda: float(os.getenv("DAILY_AI_COST_LIMIT", "10.0")))
-    enable_daily_cost_limiting: bool = True
-    sleep_when_limit_reached: bool = True
+    # Daily AI spending limits — set high since Gemini free tier
+    daily_ai_cost_limit: float = field(default_factory=lambda: float(os.getenv("DAILY_AI_COST_LIMIT", "100.0")))
+    enable_daily_cost_limiting: bool = False
+    sleep_when_limit_reached: bool = False
 
     # Market filtering
-    min_volume_for_ai_analysis: float = 200.0
+    min_volume_for_ai_analysis: float = 100.0
     exclude_low_liquidity_categories: List[str] = field(default_factory=lambda: [])
 
     # Price impact awareness
-    # Buying moves the price against us immediately. Do not exit quickly.
-    # Wait for market to recover before considering a close.
-    min_hold_time_minutes: int = 30        # Never exit within 30 mins of entry
-    price_impact_buffer: float = 0.01      # Expect ~1 cent adverse move on entry, factor into exit targets
+    min_hold_time_minutes: int = 30
+    price_impact_buffer: float = 0.01
 
 
 @dataclass
@@ -183,7 +181,7 @@ max_sector_exposure: float = 0.30
 # === PERFORMANCE TARGETS ===
 target_sharpe: float = 0.3
 target_return: float = 0.15
-min_trade_edge: float = 0.08
+min_trade_edge: float = 0.05
 min_confidence_for_large_size: float = 0.50
 
 # === DYNAMIC EXIT STRATEGIES ===
@@ -204,19 +202,19 @@ order_refresh_minutes: int = 15
 max_orders_per_market: int = 4
 
 # === MARKET SELECTION ===
-min_volume_for_analysis: float = 200.0
+min_volume_for_analysis: float = 100.0
 min_volume_for_market_making: float = 500.0
 min_price_movement: float = 0.02
 max_bid_ask_spread: float = 0.15
 min_confidence_long_term: float = 0.45
 
 # === COST OPTIMIZATION ===
-daily_ai_budget: float = 15.0
-max_ai_cost_per_decision: float = 0.12
-analysis_cooldown_hours: int = 2
-max_analyses_per_market_per_day: int = 6
-skip_news_for_low_volume: bool = True
-news_search_volume_threshold: float = 1000.0
+daily_ai_budget: float = 100.0
+max_ai_cost_per_decision: float = 0.01
+analysis_cooldown_hours: int = 1
+max_analyses_per_market_per_day: int = 10
+skip_news_for_low_volume: bool = False
+news_search_volume_threshold: float = 500.0
 
 # === SYSTEM BEHAVIOR ===
 beast_mode_enabled: bool = True
@@ -247,8 +245,8 @@ class Settings:
         if not self.api.kalshi_api_key:
             raise ValueError("KALSHI_API_KEY environment variable is required")
 
-        if not self.api.xai_api_key:
-            raise ValueError("XAI_API_KEY environment variable is required")
+        if not self.api.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is required")
 
         if self.trading.max_position_size_pct <= 0 or self.trading.max_position_size_pct > 100:
             raise ValueError("max_position_size_pct must be between 0 and 100")
