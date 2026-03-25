@@ -116,7 +116,10 @@ class TradingConfig:
     num_processor_workers: int = 5
 
     # Market selection preferences
-    preferred_categories: List[str] = field(default_factory=lambda: [])
+    preferred_categories: List[str] = field(default_factory=lambda: ["crypto", "bitcoin", "ethereum"])
+    # Crypto market focus - capitalize on AI advantage in volatile markets
+    crypto_focus_enabled: bool = True
+    crypto_position_size_multiplier: float = 1.5  # 50% larger positions in crypto to exploit AI edge
     excluded_categories: List[str] = field(default_factory=lambda: [])
 
     # High-confidence, near-expiry strategy
