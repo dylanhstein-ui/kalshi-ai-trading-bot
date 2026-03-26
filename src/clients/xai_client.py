@@ -118,6 +118,11 @@ class XAIClient(TradingLoggerMixin):
                         # Un-exhaust if new limit is higher than current cost
                         if tracker.is_exhausted and tracker.total_cost < daily_limit:
                             tracker.is_exhausted = False
+                    # Fix: Reset stuck is_exhausted flag when total_cost is 0
+                    if tracker.is_exhausted and tracker.total_cost == 0.0:
+                        tracker.is_exhausted = False
+                        with open(usage_file, 'wb') as f:
+                            pickle.dump(tracker, f)
                 return tracker
         except Exception as e:
             self.logger.warning(f"Failed to load daily tracker: {e}")
