@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-# Load environment variablesh
+# Load environment variableshh
 load_dotenv()
 
 
@@ -118,7 +118,7 @@ class TradingConfig:
     num_processor_workers: int = 5
 
     # Market selection preferences
-    preferred_categories: List[str] = field(default_factory=lambda: ["crypto", "economics"])
+    preferred_categories: List[str] = field(default_factory=lambda: [])
     excluded_categories: List[str] = field(default_factory=lambda: [])
 
     # High-confidence, near-expiry strategy
