@@ -73,7 +73,7 @@ class TradingConfig:
     """Trading strategy configuration."""
     max_position_size_pct: float = 30.0
     max_daily_loss_pct: float = 30.0
-    max_positions: int = 10
+    max_positions: int = 3
     min_balance: float = 0.0
     min_volume: float = 100.0
     max_time_to_expiry_days: int = 5
@@ -164,7 +164,7 @@ class LoggingConfig:
 
 
 # === CAPITAL ALLOCATION ACROSS STRATEGIES ===
-market_making_allocation: float = 0.40
+market_making_allocation: float = 0.05
 directional_allocation: float = 0.50
 arbitrage_allocation: float = 0.10
 
